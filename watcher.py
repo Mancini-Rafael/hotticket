@@ -63,7 +63,7 @@ class _Handler(FileSystemEventHandler):
 
 
 class Watcher:
-    def __init__(self, path: str, on_change: Callable[[], None], on_delete: Callable[[], None]):
+    def __init__(self, path: str, on_change: Callable[[], None]):
         self._path = path
         self._observer = FSEventsObserver()
         # _deleted is set on the observer thread; read only after join() to ensure

@@ -92,14 +92,13 @@ def main() -> int:
             printer.print_label(line)
         differ.update(new_lines)
 
-    # on_delete is handled internally by Watcher (sets _deleted, stops observer)
-    watcher = Watcher(args.file, on_change, lambda: None)
+    watcher = Watcher(args.file, on_change)
 
     # SIGINT handler for clean shutdown
     def handle_sigint(sig, frame):
         logger.debug("Interrupted, shutting down...")
         watcher.stop()
-        # printer.close() is handled by the cleanup path after watcher.join() returns
+        printer.close()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
