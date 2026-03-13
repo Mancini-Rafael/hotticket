@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
