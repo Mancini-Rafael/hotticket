@@ -92,20 +92,25 @@ def main() -> int:
             printer.print_label(line)
         differ.update(new_lines)
 
-    # Set up watcher
+    # on_delete is handled internally by Watcher (sets _deleted, stops observer)
     watcher = Watcher(args.file, on_change, lambda: None)
 
     # SIGINT handler for clean shutdown
     def handle_sigint(sig, frame):
         logger.debug("Interrupted, shutting down...")
         watcher.stop()
-        printer.close()
+        # printer.close() is handled by the cleanup path after watcher.join() returns
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
 
     print(f"Watching {args.file!r} — press Ctrl+C to stop")
-    watcher.start()
+    try:
+        watcher.start()
+    except RuntimeError as e:
+        logger.error("Failed to start watcher: %s", e)
+        printer.close()
+        return 1
 
     try:
         watcher.join()
