@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from PIL import Image, ImageDraw, ImageFont
@@ -13,30 +12,31 @@ class PrinterConnectionError(Exception):
 
 
 class Printer:
-    def __init__(self, dry_run: bool = False) -> None:
+    def __init__(self, dry_run: bool = False, density: int = 3) -> None:
         self._dry_run = dry_run
+        self._density = density
         self._client = None
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
-    def connect(self, mac: str) -> None:
+    def connect(self, port: str) -> None:
         """
-        Connect to the Niimbot B1 at the given Bluetooth MAC address.
+        Connect to the Niimbot via serial port (USB-C or Bluetooth serial).
         Raises PrinterConnectionError on failure.
         """
         if self._dry_run:
-            logger.debug("[DRY RUN] Skipping Bluetooth connection to %s", mac)
+            logger.debug("[DRY RUN] Skipping connection to %s", port)
             return
         try:
-            from niimprint import BluetoothTransport, PrinterClient
-            transport = BluetoothTransport(mac)
+            from niimprint import SerialTransport, PrinterClient
+            transport = SerialTransport(port)
             self._client = PrinterClient(transport)
             self._client.heartbeat()
-            logger.debug("Connected to printer at %s", mac)
+            logger.debug("Connected to printer at %s", port)
         except Exception as e:
-            raise PrinterConnectionError(f"Could not connect to {mac}: {e}") from e
+            raise PrinterConnectionError(f"Could not connect to {port}: {e}") from e
 
     def print_label(self, text: str) -> None:
         """Render text and send to printer. Errors are logged, not raised."""
@@ -45,16 +45,18 @@ class Printer:
             return
         try:
             image = self._render(text)
-            # print_image handles mode conversion internally (converts to "L" then "1")
-            self._client.print_image(image)
+            self._client.print_image(image, density=self._density)
             logger.debug("Printed: %s", text)
         except Exception as e:
             logger.error("Print failed for %r: %s", text, e)
 
     def discover(self) -> list[dict]:
-        """Scan for nearby Niimbot BLE devices. Returns [{name, address}]."""
+        """
+        List available serial ports that look like Niimbot printers.
+        Returns [{name, address}] where address is the port path.
+        """
         try:
-            return asyncio.run(self._async_discover())
+            return self._discover_serial_ports()
         except Exception as e:
             logger.error("Discovery failed: %s", e)
             return []
@@ -64,11 +66,9 @@ class Printer:
         if self._client is None:
             return
         try:
-            # BluetoothTransport uses a raw socket; close it via the transport
-            if hasattr(self._client, "_transport") and hasattr(
-                self._client._transport, "_sock"
-            ):
-                self._client._transport._sock.close()
+            transport = getattr(self._client, "_transport", None)
+            if transport is not None and hasattr(transport, "_serial"):
+                transport._serial.close()
         except Exception:
             pass
         finally:
@@ -108,7 +108,6 @@ class Printer:
             else:
                 if current:
                     lines.append(current)
-                # word itself may be too long — char-break it
                 if self._text_width(word, font) > LABEL_WIDTH_PX:
                     for fragment in self._char_break(word, font):
                         lines.append(fragment)
@@ -144,11 +143,11 @@ class Printer:
         draw = ImageDraw.Draw(scratch)
         return int(draw.textlength(text, font=font))
 
-    async def _async_discover(self) -> list[dict]:
-        from bleak import BleakScanner
-        devices = await BleakScanner.discover(timeout=5.0)
-        return [
-            {"name": d.name, "address": d.address}
-            for d in devices
-            if d.name and "niimbot" in d.name.lower()
-        ]
+    @staticmethod
+    def _discover_serial_ports() -> list[dict]:
+        """List serial ports, highlighting likely Niimbot candidates."""
+        from serial.tools.list_ports import comports
+        devices = []
+        for port, desc, hwid in comports():
+            devices.append({"name": desc or hwid, "address": port})
+        return devices

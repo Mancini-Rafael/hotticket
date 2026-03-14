@@ -14,16 +14,18 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python main.py tasks.txt --device AA:BB:CC:DD:EE:FF\n"
+            "  python main.py tasks.txt --device /dev/cu.usbmodem101\n"
             "  python main.py --discover\n"
-            "  python main.py tasks.txt --device AA:BB:CC:DD:EE:FF --dry-run --debug"
+            "  python main.py tasks.txt --device /dev/cu.usbmodem101 --dry-run --debug"
         ),
     )
     parser.add_argument("file", nargs="?", help="Path to the TODO file to watch")
-    parser.add_argument("--device", help="Bluetooth MAC address of the Niimbot B1")
+    parser.add_argument("--device", help="Serial port path for the Niimbot (e.g. /dev/cu.usbmodem101)")
     parser.add_argument("--discover", action="store_true", help="Scan for nearby Niimbot devices")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("--dry-run", action="store_true", help="Log labels instead of printing")
+    parser.add_argument("--density", type=int, default=3, choices=range(1, 6), metavar="1-5",
+                        help="Print density 1 (lightest) to 5 (darkest), default 3")
     return parser.parse_args()
 
 
@@ -43,7 +45,7 @@ def main() -> int:
     log_module.init(debug=args.debug)
     logger = log_module.get_logger(__name__)
 
-    printer = Printer(dry_run=args.dry_run)
+    printer = Printer(dry_run=args.dry_run, density=args.density)
 
     if args.discover:
         run_discover(printer)
