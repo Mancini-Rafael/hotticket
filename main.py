@@ -61,6 +61,7 @@ def main() -> int:
 
     # Resolve device port
     device = args.device
+    selected_mac: str | None = None
     if args.connect:
         if args.device:
             print("Error: --connect and --device are mutually exclusive.", file=sys.stderr)
@@ -87,9 +88,9 @@ def main() -> int:
                     selected = devices[int(choice) - 1]
                     break
                 print(f"Please enter a number between 1 and {len(devices)}.")
-        if not selected["connected"]:
-            print(f"Connecting {selected['name']} via Bluetooth...")
-            printer.bluetooth_connect(selected["mac"])
+        selected_mac = selected["mac"]
+        print(f"Connecting {selected['name']} via Bluetooth...")
+        printer.bluetooth_connect(selected_mac)
         device = selected.get("port") or printer.wait_for_serial_port(selected["name"])
         if not device:
             print(f"Error: serial port for {selected['name']} did not appear after connecting.", file=sys.stderr)
@@ -145,6 +146,8 @@ def main() -> int:
         logger.debug("Interrupted, shutting down...")
         watcher.stop()
         printer.close()
+        if selected_mac:
+            printer.bluetooth_forget(selected_mac)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
@@ -155,6 +158,8 @@ def main() -> int:
     except RuntimeError as e:
         logger.error("Failed to start watcher: %s", e)
         printer.close()
+        if selected_mac:
+            printer.bluetooth_forget(selected_mac)
         return 1
 
     try:
@@ -162,10 +167,14 @@ def main() -> int:
     except Exception as e:
         logger.error("Unexpected error: %s", e)
         printer.close()
+        if selected_mac:
+            printer.bluetooth_forget(selected_mac)
         return 1
 
     # Watcher stopped cleanly (file deleted or observer stopped)
     printer.close()
+    if selected_mac:
+        printer.bluetooth_forget(selected_mac)
     if watcher.was_deleted():
         logger.warning("Stopped: watched file was deleted.")
     return 0

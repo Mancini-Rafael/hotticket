@@ -244,3 +244,15 @@ class Printer:
         subprocess.run(["blueutil", "--connect", mac], check=True)
         # Give the OS a moment to fully establish the connection before the serial port is opened
         time.sleep(3)
+
+    @staticmethod
+    def bluetooth_forget(mac: str) -> None:
+        """Unpair a Bluetooth device so the next connect triggers a fresh pairing.
+
+        This is the only reliable way to reset the RFCOMM channel state on macOS —
+        a simple disconnect leaves stale state that causes the printer to ignore
+        packets on the next session.
+        """
+        import subprocess
+        logger.info("Unpairing %s to reset Bluetooth state for next session...", mac)
+        subprocess.run(["blueutil", "--unpair", mac], check=False)
