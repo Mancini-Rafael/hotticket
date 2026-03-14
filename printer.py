@@ -5,7 +5,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
-LABEL_WIDTH_PX = 112  # 14mm at 203 DPI
+# --- Paper configuration ---
+# Change these to match your label stock; pixel dimensions are derived automatically.
+DPI = 203
+PAPER_WIDTH_MM  = 30
+PAPER_HEIGHT_MM = 20
+
+PAPER_WIDTH_PX  = round(PAPER_WIDTH_MM  * DPI / 25.4)  # ~240px
+PAPER_HEIGHT_PX = round(PAPER_HEIGHT_MM * DPI / 25.4)  # ~160px
+
+FONT_SIZE = 24
 
 
 class PrinterConnectionError(Exception):
@@ -98,36 +107,54 @@ class Printer:
     # ------------------------------------------------------------------
 
     def _render(self, text: str) -> Image.Image:
-        """Render text to a LABEL_WIDTH_PX-wide monochrome PIL image."""
-        font = ImageFont.load_default()
+        """Render text centered on a PAPER_WIDTH_PX × PAPER_HEIGHT_PX monochrome image."""
+        font = self._load_font(FONT_SIZE)
         lines = self._wrap_text(text, font)
         line_height = font.getbbox("A")[3] + 2  # height + 2px padding
-        img_height = max(line_height * len(lines), 1)
+        text_block_height = line_height * len(lines)
 
-        image = Image.new("1", (LABEL_WIDTH_PX, img_height), color=1)
+        image = Image.new("1", (PAPER_WIDTH_PX, PAPER_HEIGHT_PX), color=1)
         draw = ImageDraw.Draw(image)
 
-        y = 0
+        y = max((PAPER_HEIGHT_PX - text_block_height) // 2, 0)
         for line in lines:
-            draw.text((0, y), line, font=font, fill=0)
+            line_width = self._text_width(line, font)
+            x = max((PAPER_WIDTH_PX - line_width) // 2, 0)
+            draw.text((x, y), line, font=font, fill=0)
             y += line_height
 
         return image
 
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.FreeTypeFont:
+        """Load a TrueType font at the given pixel size, falling back to system Helvetica."""
+        candidates = [
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+        ]
+        for path in candidates:
+            try:
+                return ImageFont.truetype(path, size)
+            except (OSError, IOError):
+                continue
+        # Last resort: Pillow's built-in default (bitmap, ignores size)
+        logger.warning("No TrueType font found; falling back to default bitmap font")
+        return ImageFont.load_default()
+
     def _wrap_text(self, text: str, font: ImageFont.ImageFont) -> list[str]:
-        """Word-wrap text to fit within LABEL_WIDTH_PX. Char-breaks long words."""
+        """Word-wrap text to fit within PAPER_WIDTH_PX. Char-breaks long words."""
         words = text.split()
         lines: list[str] = []
         current = ""
 
         for word in words:
             candidate = f"{current} {word}".strip() if current else word
-            if self._text_width(candidate, font) <= LABEL_WIDTH_PX:
+            if self._text_width(candidate, font) <= PAPER_WIDTH_PX:
                 current = candidate
             else:
                 if current:
                     lines.append(current)
-                if self._text_width(word, font) > LABEL_WIDTH_PX:
+                if self._text_width(word, font) > PAPER_WIDTH_PX:
                     for fragment in self._char_break(word, font):
                         lines.append(fragment)
                     current = ""
@@ -145,7 +172,7 @@ class Printer:
         current = ""
         for char in word:
             candidate = current + char
-            if self._text_width(candidate, font) <= LABEL_WIDTH_PX:
+            if self._text_width(candidate, font) <= PAPER_WIDTH_PX:
                 current = candidate
             else:
                 if current:
