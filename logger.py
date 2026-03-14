@@ -7,7 +7,7 @@ def init(debug: bool = False) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "hotticket.log"
 
-    level = logging.DEBUG if debug else logging.WARNING
+    level = logging.DEBUG if debug else logging.INFO
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
     logging.basicConfig(

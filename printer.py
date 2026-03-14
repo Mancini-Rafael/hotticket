@@ -1,4 +1,5 @@
 import logging
+import time
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -29,14 +30,31 @@ class Printer:
         if self._dry_run:
             logger.debug("[DRY RUN] Skipping connection to %s", port)
             return
-        try:
-            from niimprint import SerialTransport, PrinterClient
-            transport = SerialTransport(port)
-            self._client = PrinterClient(transport)
-            self._client.heartbeat()
-            logger.debug("Connected to printer at %s", port)
-        except Exception as e:
-            raise PrinterConnectionError(f"Could not connect to {port}: {e}") from e
+        from niimprint import SerialTransport, PrinterClient
+        last_error: Exception | None = None
+        for attempt in range(1, 3):
+            transport = None
+            try:
+                logger.info("Connecting to %s (attempt %d/4)...", port, attempt)
+                transport = SerialTransport(port)
+                time.sleep(2)  # Wait for RFCOMM channel to fully establish
+                self._client = PrinterClient(transport)
+                self._client.heartbeat()
+                logger.info("Connected to printer at %s", port)
+                return
+            except Exception as e:
+                last_error = e
+                logger.warning("Attempt %d/2 failed: %s", attempt, e)
+                if transport is not None and hasattr(transport, "_serial"):
+                    try:
+                        transport._serial.close()
+                    except Exception:
+                        pass
+                self._client = None
+                if attempt < 2:
+                    logger.info("Retrying in 3s...")
+                    time.sleep(3)
+        raise PrinterConnectionError(f"Could not connect to {port}: {last_error}") from last_error
 
     def print_label(self, text: str) -> None:
         """Render text and send to printer. Errors are logged, not raised."""
@@ -44,9 +62,10 @@ class Printer:
             logger.warning("[DRY RUN] Would print: %s", text)
             return
         try:
+            logger.info("Printing: %s", text)
             image = self._render(text)
             self._client.print_image(image, density=self._density)
-            logger.debug("Printed: %s", text)
+            logger.info("Done: %s", text)
         except Exception as e:
             logger.error("Print failed for %r: %s", text, e)
 
@@ -145,9 +164,83 @@ class Printer:
 
     @staticmethod
     def _discover_serial_ports() -> list[dict]:
-        """List serial ports, highlighting likely Niimbot candidates."""
+        """List serial ports, flagging likely Niimbot candidates."""
         from serial.tools.list_ports import comports
+        NIIMBOT_PREFIXES = ("B1", "B21", "B3S", "D11", "D110", "D101")
         devices = []
         for port, desc, hwid in comports():
-            devices.append({"name": desc or hwid, "address": port})
+            port_name = port.split("/")[-1]
+            is_niimbot = any(port_name.upper().startswith(p) for p in NIIMBOT_PREFIXES)
+            devices.append({
+                "name": desc or hwid or port_name,
+                "address": port,
+                "niimbot": is_niimbot,
+            })
         return devices
+
+    @staticmethod
+    def scan_niimbot_devices(inquiry_seconds: int = 5) -> list[dict]:
+        """
+        Scan for Niimbot printers via blueutil.
+        Checks paired/connected devices first, then does a live inquiry scan
+        for nearby devices. Returns [{name, mac, port, connected}].
+        """
+        import subprocess, json
+
+        def run_blueutil(*args) -> list[dict]:
+            result = subprocess.run(
+                ["blueutil", "--format", "json", *args],
+                capture_output=True, text=True, timeout=inquiry_seconds + 5,
+            )
+            return json.loads(result.stdout) if result.stdout.strip() else []
+
+        # Collect from paired devices and live inquiry, deduplicated by address
+        seen: dict[str, dict] = {}
+        for device in run_blueutil("--paired"):
+            seen[device["address"]] = device
+        logger.info("Scanning for nearby devices (%ds)...", inquiry_seconds)
+        for device in run_blueutil("--inquiry", str(inquiry_seconds)):
+            seen.setdefault(device["address"], device)
+
+        # Filter for Niimbot devices (name contains "B1", "D11", etc.)
+        NIIMBOT_KEYWORDS = ("B1", "B21", "B3S", "D11", "D110", "D101")
+        niimbot = [
+            d for d in seen.values()
+            if d.get("name") and any(kw in d["name"].upper() for kw in NIIMBOT_KEYWORDS)
+        ]
+
+        # Cross-reference with serial ports
+        from serial.tools.list_ports import comports
+        serial_ports = {p.split("/")[-1]: p for p, _, _ in comports()}
+
+        devices = []
+        for d in niimbot:
+            port = next((p for pname, p in serial_ports.items() if d["name"] in pname), None)
+            devices.append({
+                "name": d.get("name", d["address"]),
+                "mac": d["address"],
+                "port": port,
+                "connected": d.get("connected", False),
+            })
+        return devices
+
+    @staticmethod
+    def wait_for_serial_port(device_name: str, timeout: int = 10) -> str | None:
+        """Poll until the serial port for the given device name appears, then return its path."""
+        import glob
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            matches = glob.glob(f"/dev/cu.{device_name}*")
+            if matches:
+                return matches[0]
+            time.sleep(0.5)
+        return None
+
+    @staticmethod
+    def bluetooth_connect(mac: str) -> None:
+        """Connect to a Bluetooth device by MAC address using blueutil."""
+        import subprocess
+        logger.info("Connecting to %s via Bluetooth...", mac)
+        subprocess.run(["blueutil", "--connect", mac], check=True)
+        # Give the OS a moment to fully establish the connection before the serial port is opened
+        time.sleep(3)

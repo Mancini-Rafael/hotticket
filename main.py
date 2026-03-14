@@ -14,14 +14,16 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python main.py tasks.txt --device /dev/cu.usbmodem101\n"
+            "  python main.py tasks.txt --connect\n"
+            "  python main.py tasks.txt --device /dev/cu.B1-F529062396\n"
             "  python main.py --discover\n"
-            "  python main.py tasks.txt --device /dev/cu.usbmodem101 --dry-run --debug"
+            "  python main.py tasks.txt --connect --dry-run --debug"
         ),
     )
     parser.add_argument("file", nargs="?", help="Path to the TODO file to watch")
-    parser.add_argument("--device", help="Serial port path for the Niimbot (e.g. /dev/cu.usbmodem101)")
-    parser.add_argument("--discover", action="store_true", help="Scan for nearby Niimbot devices")
+    parser.add_argument("--device", help="Serial port path for the Niimbot")
+    parser.add_argument("--connect", action="store_true", help="Auto-discover and connect to the first Niimbot found")
+    parser.add_argument("--discover", action="store_true", help="Scan for nearby Niimbot devices and show connect commands")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("--dry-run", action="store_true", help="Log labels instead of printing")
     parser.add_argument("--density", type=int, default=3, choices=range(1, 6), metavar="1-5",
@@ -30,13 +32,19 @@ def parse_args():
 
 
 def run_discover(printer: Printer) -> None:
-    print("Scanning for nearby Niimbot devices (5s)...")
-    devices = printer.discover()
+    print("Scanning for paired Niimbot devices...")
+    devices = printer.scan_niimbot_devices()
     if not devices:
-        print("No Niimbot devices found.")
-    else:
-        for d in devices:
-            print(f"  {d['name']}  —  {d['address']}")
+        print("No Niimbot devices found. Make sure the printer is on and paired via Bluetooth.")
+        return
+    for d in devices:
+        port_info = d["port"] or "serial port not found — printer may be off"
+        print(f"\nFound: {d['name']}")
+        print(f"  MAC:     {d['mac']}")
+        print(f"  Port:    {port_info}")
+        if d["port"]:
+            print(f"  Connect: python main.py <file> --device {d['port']}")
+    print("\nOr use --connect to scan and select interactively.")
 
 
 def main() -> int:
@@ -51,15 +59,51 @@ def main() -> int:
         run_discover(printer)
         return 0
 
+    # Resolve device port
+    device = args.device
+    if args.connect:
+        if args.device:
+            print("Error: --connect and --device are mutually exclusive.", file=sys.stderr)
+            return 1
+        devices = printer.scan_niimbot_devices()
+        if not devices:
+            print("No Niimbot devices found nearby. Make sure the printer is on.", file=sys.stderr)
+            return 1
+        if len(devices) == 1:
+            selected = devices[0]
+            status = "connected" if selected["connected"] else "not connected"
+            print(f"Found: {selected['name']} ({status})")
+            choice = input("Connect to this device? [Y/n]: ").strip().lower()
+            if choice == "n":
+                return 0
+        else:
+            print("Found Niimbot devices:")
+            for i, d in enumerate(devices, 1):
+                status = "connected" if d["connected"] else "not connected"
+                print(f"  [{i}] {d['name']}  —  {status}")
+            while True:
+                choice = input("Select device [1]: ").strip() or "1"
+                if choice.isdigit() and 1 <= int(choice) <= len(devices):
+                    selected = devices[int(choice) - 1]
+                    break
+                print(f"Please enter a number between 1 and {len(devices)}.")
+        if not selected["connected"]:
+            print(f"Connecting {selected['name']} via Bluetooth...")
+            printer.bluetooth_connect(selected["mac"])
+        device = selected.get("port") or printer.wait_for_serial_port(selected["name"])
+        if not device:
+            print(f"Error: serial port for {selected['name']} did not appear after connecting.", file=sys.stderr)
+            return 1
+
     # Validate required args for watch mode
     missing = []
     if not args.file:
         missing.append("<file>")
-    if not args.device:
-        missing.append("--device <MAC>")
+    if not device:
+        missing.append("--device <port> or --connect")
     if missing:
         print(f"Error: {' and '.join(missing)} required in watch mode.", file=sys.stderr)
-        print("Run with --discover to find your device's MAC address.", file=sys.stderr)
+        print("Run with --discover to find your device.", file=sys.stderr)
         return 1
 
     # Read initial file content
@@ -72,7 +116,7 @@ def main() -> int:
 
     # Connect printer
     try:
-        printer.connect(args.device)
+        printer.connect(device)
     except PrinterConnectionError as e:
         logger.error("Printer connection failed: %s", e)
         return 1
