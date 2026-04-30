@@ -8,13 +8,13 @@ logger = logging.getLogger(__name__)
 # --- Paper configuration ---
 # Change these to match your label stock; pixel dimensions are derived automatically.
 DPI = 203
-PAPER_WIDTH_MM  = 30
-PAPER_HEIGHT_MM = 20
+PAPER_WIDTH_MM  = 50
+PAPER_HEIGHT_MM = 50
 
 PAPER_WIDTH_PX  = round(PAPER_WIDTH_MM  * DPI / 25.4)  # ~240px
 PAPER_HEIGHT_PX = round(PAPER_HEIGHT_MM * DPI / 25.4)  # ~160px
 
-FONT_SIZE = 24
+FONT_SIZE = 40
 
 
 class PrinterConnectionError(Exception):
@@ -118,9 +118,7 @@ class Printer:
 
         y = max((PAPER_HEIGHT_PX - text_block_height) // 2, 0)
         for line in lines:
-            line_width = self._text_width(line, font)
-            x = max((PAPER_WIDTH_PX - line_width) // 2, 0)
-            draw.text((x, y), line, font=font, fill=0)
+            draw.text((0, y), line, font=font, fill=0)
             y += line_height
 
         return image
@@ -142,52 +140,9 @@ class Printer:
         return ImageFont.load_default()
 
     def _wrap_text(self, text: str, font: ImageFont.ImageFont) -> list[str]:
-        """Word-wrap text to fit within PAPER_WIDTH_PX. Char-breaks long words."""
-        words = text.split()
-        lines: list[str] = []
-        current = ""
-
-        for word in words:
-            candidate = f"{current} {word}".strip() if current else word
-            if self._text_width(candidate, font) <= PAPER_WIDTH_PX:
-                current = candidate
-            else:
-                if current:
-                    lines.append(current)
-                if self._text_width(word, font) > PAPER_WIDTH_PX:
-                    for fragment in self._char_break(word, font):
-                        lines.append(fragment)
-                    current = ""
-                else:
-                    current = word
-
-        if current:
-            lines.append(current)
-
-        return lines or [""]
-
-    def _char_break(self, word: str, font: ImageFont.ImageFont) -> list[str]:
-        """Break a single word that exceeds label width into character-level chunks."""
-        fragments: list[str] = []
-        current = ""
-        for char in word:
-            candidate = current + char
-            if self._text_width(candidate, font) <= PAPER_WIDTH_PX:
-                current = candidate
-            else:
-                if current:
-                    fragments.append(current)
-                current = char
-        if current:
-            fragments.append(current)
-        return fragments
-
-    @staticmethod
-    def _text_width(text: str, font: ImageFont.ImageFont) -> int:
-        """Return pixel width of text using ImageDraw.textlength (Pillow >= 9.2)."""
-        scratch = Image.new("1", (1, 1))
-        draw = ImageDraw.Draw(scratch)
-        return int(draw.textlength(text, font=font))
+        """Hard-wrap text every 17 characters."""
+        chunk_size = 17
+        return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)] or [""]
 
     @staticmethod
     def _discover_serial_ports() -> list[dict]:

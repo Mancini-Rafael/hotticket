@@ -15,7 +15,7 @@ def parse_args():
         epilog=(
             "Examples:\n"
             "  python main.py tasks.txt --connect\n"
-            "  python main.py tasks.txt --device /dev/cu.B1-F529062396\n"
+            "  python main.py tasks.txt --device /dev/cu.B1-XXXXXXXXXX\n"
             "  python main.py --discover\n"
             "  python main.py tasks.txt --connect --dry-run --debug"
         ),

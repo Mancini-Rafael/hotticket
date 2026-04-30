@@ -44,7 +44,7 @@ On first run (and every subsequent run) macOS will prompt for a pairing code —
 If you already know the serial port:
 
 ```sh
-python main.py tasks.txt --device /dev/cu.B1-F529062396
+python main.py tasks.txt --device /dev/cu.B1-XXXXXXXXXX
 ```
 
 ### Discover devices
@@ -58,7 +58,7 @@ python main.py --discover
 | Flag | Description |
 |------|-------------|
 | `--connect` | Auto-discover and connect to the first Niimbot found |
-| `--device PORT` | Serial port path (e.g. `/dev/cu.B1-F529062396`) |
+| `--device PORT` | Serial port path (e.g. `/dev/cu.B1-XXXXXXXXXX`) |
 | `--discover` | Scan for nearby Niimbot devices and show connect commands |
 | `--density 1-5` | Print density, 1 (lightest) to 5 (darkest). Default: 3 |
 | `--dry-run` | Log labels instead of printing (no printer needed) |
