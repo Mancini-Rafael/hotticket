@@ -1,5 +1,3 @@
-# HotTicket
-
 ![HotTicket](assets/header.png)
 
 Watch a plain-text todo file and print each new line on a **Niimbot B1** label printer over Bluetooth — as soon as you save the file.
