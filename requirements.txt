@@ -3,7 +3,7 @@ click==8.3.1
 iniconfig==2.3.0
 niimprint @ git+https://github.com/AndBondStyle/niimprint@be39f68c16a5a7dc1b09bb173700d0ee1ec9cb66
 packaging==26.0
-pillow==10.4.0
+pillow==12.2.0
 pluggy==1.6.0
 Pygments==2.19.2
 pyobjc-core==12.1
